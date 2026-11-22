@@ -5,7 +5,7 @@
 <p align="center">
   <b>A handheld probe for tech packs.</b> Right-click any block face to see which item, fluid and energy
   ports it exposes on that side.<br>
-  <sub>Minecraft 1.21.1 · NeoForge</sub>
+  <sub>Minecraft 1.21.1 · NeoForge · <a href="#versions">other versions</a></sub>
 </p>
 
 ---
@@ -22,6 +22,15 @@ Port Probe answers the question "what does this face of this block actually acce
 - **Acceptance test.** Automatically checks which of the items and fluids you are carrying the face would take. No setup needed.
 - **Never opens the GUI.** The probe reads the block instead of activating it.
 - **Read-only.** Every check is a simulation. Nothing is inserted, extracted or changed.
+
+## Versions
+
+There is a build of Port Probe for each of these Minecraft versions. Each one lives on its own branch.
+
+| Minecraft | NeoForge | Made for | Branch |
+|---|---|---|---|
+| 1.21.1 | 21.1 | All the Mods 10 | [`main`](https://github.com/stereoabuse/port-probe/tree/main) |
+| 26.1.2 | 26.1 | All the Mods 11 | [`26.1`](https://github.com/stereoabuse/port-probe/tree/26.1) |
 
 ## Pages
 
