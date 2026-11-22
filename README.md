@@ -5,7 +5,7 @@
 <p align="center">
   <b>A handheld probe for tech packs.</b> Right-click any block face to see which item, fluid and energy
   ports it exposes on that side.<br>
-  <sub>Minecraft 1.21.1 · NeoForge</sub>
+  <sub>Minecraft 26.1.2 · NeoForge · <a href="#versions">other versions</a></sub>
 </p>
 
 ---
@@ -22,6 +22,15 @@ Port Probe answers the question "what does this face of this block actually acce
 - **Acceptance test.** Automatically checks which of the items and fluids you are carrying the face would take. No setup needed.
 - **Never opens the GUI.** The probe reads the block instead of activating it.
 - **Read-only.** Every check is a simulation. Nothing is inserted, extracted or changed.
+
+## Versions
+
+There is a build of Port Probe for each of these Minecraft versions. Each one lives on its own branch.
+
+| Minecraft | NeoForge | Made for | Branch |
+|---|---|---|---|
+| 1.21.1 | 21.1 | All the Mods 10 | [`main`](https://github.com/stereoabuse/port-probe/tree/main) |
+| 26.1.2 | 26.1 | All the Mods 11 | [`26.1`](https://github.com/stereoabuse/port-probe/tree/26.1) |
 
 ## Pages
 
@@ -86,7 +95,7 @@ Port Probe: Furnace (all sides)
 | **Items** | How many slots this face can reach, how many hold something, and whether anything can be pulled out right now. |
 | **Slot N** | What the slot holds and its role, see below. Up to 6 slots are listed. Blocks with more slots than that list only the occupied ones. |
 | **Fluids** | How many tanks this face can reach and whether anything can be drained right now. Tanks are listed with their contents and capacity in mB, with the same limit of 6 as slots. |
-| **Energy** | Stored and maximum FE, and whether this face receives or gives energy. |
+| **Energy** | Stored and maximum FE, and whether this face can receive or give energy right now. A full store reads as not receiving, an empty one as not extracting. |
 | **Other** | Every other kind of port the face offers, by the ID its mod gave it, for example `mekanism:chemical_handler`. Only shown when there is one. The all-sides summary lists these too. |
 | **Accepts** | Which items or fluids this face would take, see below. |
 | **not exposed** | The block offers nothing of that kind on this face. A pipe on this side will not connect for it. |
@@ -155,7 +164,7 @@ Blocks made of multiple parts in one block space, such as cables with attached b
 
 ### Building
 
-Requires a JDK 21.
+Requires a JDK 25.
 
 ```bash
 ./gradlew build

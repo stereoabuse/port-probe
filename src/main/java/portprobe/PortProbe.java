@@ -1,9 +1,7 @@
 package portprobe;
 
-import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.CreativeModeTabs;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
@@ -20,7 +18,7 @@ public class PortProbe {
 
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MODID);
     public static final DeferredItem<ProbeItem> PROBE =
-            ITEMS.registerItem("port_probe", ProbeItem::new, new Item.Properties().stacksTo(1));
+            ITEMS.registerItem("port_probe", ProbeItem::new, properties -> properties.stacksTo(1));
 
     public PortProbe(IEventBus modBus) {
         ITEMS.register(modBus);
@@ -35,8 +33,7 @@ public class PortProbe {
         ItemStack stack = event.getItemStack();
         if (event.getUsePhase() == UseItemOnBlockEvent.UsePhase.ITEM_BEFORE_BLOCK && player != null
                 && !player.getAbilities().mayBuild && stack.getItem() instanceof ProbeItem probe) {
-            probe.onItemUseFirst(stack, event.getUseOnContext());
-            event.cancelWithResult(ItemInteractionResult.sidedSuccess(event.getLevel().isClientSide));
+            event.cancelWithResult(probe.onItemUseFirst(stack, event.getUseOnContext()));
         }
     }
 

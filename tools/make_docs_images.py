@@ -10,7 +10,7 @@ Recipes are read from src/main/resources/data/<mod_id>/recipe/*.json, so a new r
 picture by re-running this. Vanilla item textures come from the Minecraft client jar that Gradle
 caches after the first build (override with --client-jar).
 
-Limits: only shaped and shapeless crafting recipes, only {"item": ...} ingredients, only items
+Limits: only shaped and shapeless crafting recipes, only single-item ingredients (no tags), only items
 with a flat texture in textures/item (no 3D block items), and no stack counts.
 """
 import argparse
@@ -60,9 +60,9 @@ class Textures:
 
 
 def ingredient_item(ingredient):
-    if not isinstance(ingredient, dict) or "item" not in ingredient:
+    if not isinstance(ingredient, str) or ingredient.startswith("#"):
         raise SystemExit(f"unsupported ingredient: {ingredient}")
-    return ingredient["item"]
+    return ingredient
 
 
 def recipe_grid(recipe):

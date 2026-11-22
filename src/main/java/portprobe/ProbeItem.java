@@ -1,10 +1,13 @@
 package portprobe;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.ToIntFunction;
 
-import javax.annotation.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -18,9 +21,9 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.ItemStackLinkedSet;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.TooltipDisplay;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.ChestBlock;
@@ -32,13 +35,15 @@ import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.Fluids;
 import net.neoforged.neoforge.capabilities.BlockCapability;
 import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.energy.IEnergyStorage;
 import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.fluids.FluidUtil;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.ItemHandlerHelper;
+import net.neoforged.neoforge.fluids.FluidType;
+import net.neoforged.neoforge.transfer.ResourceHandler;
+import net.neoforged.neoforge.transfer.energy.EnergyHandler;
+import net.neoforged.neoforge.transfer.fluid.FluidResource;
+import net.neoforged.neoforge.transfer.fluid.FluidUtil;
+import net.neoforged.neoforge.transfer.item.ItemResource;
+import net.neoforged.neoforge.transfer.resource.Resource;
+import net.neoforged.neoforge.transfer.transaction.Transaction;
 
 public class ProbeItem extends Item {
     private static final int MAX_SLOT_LINES = 6;
@@ -50,7 +55,7 @@ public class ProbeItem extends Item {
     private static final List<Item> SAMPLE_ITEMS = List.of(Items.COBBLESTONE, Items.STICK, Items.FEATHER);
     private static final List<Fluid> SAMPLE_FLUIDS = List.of(Fluids.WATER, Fluids.LAVA);
     private static final Set<BlockCapability<?, ?>> READ_IN_DETAIL = Set.of(
-            Capabilities.ItemHandler.BLOCK, Capabilities.FluidHandler.BLOCK, Capabilities.EnergyStorage.BLOCK);
+            Capabilities.Item.BLOCK, Capabilities.Fluid.BLOCK, Capabilities.Energy.BLOCK);
 
     public ProbeItem(Properties properties) {
         super(properties);
@@ -65,10 +70,10 @@ public class ProbeItem extends Item {
         if (player == null) {
             return InteractionResult.PASS;
         }
-        if (!level.isClientSide) {
+        if (!level.isClientSide()) {
             // Restarted on every attempt, so holding the button reads once instead of repeating.
-            boolean held = player.getCooldowns().isOnCooldown(this);
-            player.getCooldowns().addCooldown(this, HOLD_GUARD_TICKS);
+            boolean held = player.getCooldowns().isOnCooldown(stack);
+            player.getCooldowns().addCooldown(stack, HOLD_GUARD_TICKS);
             if (held) {
                 return InteractionResult.CONSUME;
             }
@@ -88,28 +93,42 @@ public class ProbeItem extends Item {
                 }
             }
         }
-        return InteractionResult.sidedSuccess(level.isClientSide);
+        return InteractionResult.SUCCESS;
     }
 
     @Override
-    public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
-        tooltip.add(tr("tooltip.use").withStyle(ChatFormatting.GRAY));
-        tooltip.add(tr("tooltip.sneak").withStyle(ChatFormatting.GRAY));
-        tooltip.add(tr("tooltip.test").withStyle(ChatFormatting.GRAY));
+    public void appendHoverText(ItemStack stack, TooltipContext context, TooltipDisplay display,
+            Consumer<Component> tooltip, TooltipFlag flag) {
+        tooltip.accept(tr("tooltip.use").withStyle(ChatFormatting.GRAY));
+        tooltip.accept(tr("tooltip.sneak").withStyle(ChatFormatting.GRAY));
+        tooltip.accept(tr("tooltip.test").withStyle(ChatFormatting.GRAY));
     }
 
-    /** One of each distinct item (components included) the player carries, hotbar first, without the probe itself. */
-    private static List<ItemStack> carriedItems(Player player) {
-        Inventory inventory = player.getInventory();
-        int hotbar = Inventory.getSelectionSize();
-        List<ItemStack> ordered = new ArrayList<>(inventory.items.subList(0, hotbar));
-        ordered.addAll(inventory.offhand);
-        ordered.addAll(inventory.items.subList(hotbar, inventory.items.size()));
+    /** Runs a transfer inside a transaction that is rolled back, and returns the amount it would have moved. */
+    private static int simulate(ToIntFunction<Transaction> transfer) {
+        try (Transaction transaction = Transaction.openRoot()) {
+            return transfer.applyAsInt(transaction);
+        }
+    }
 
-        Set<ItemStack> distinct = ItemStackLinkedSet.createTypeAndComponentsSet();
+    private static <T extends Resource> boolean canExtract(ResourceHandler<T> handler, int index) {
+        T content = handler.getResource(index);
+        // Everything is asked for: some handlers only give whole increments (a cauldron gives nothing for 1 mB).
+        return !content.isEmpty() && simulate(tx -> handler.extract(index, content, Integer.MAX_VALUE, tx)) > 0;
+    }
+
+    /** Each distinct item (components included) the player carries, hotbar first, without the probe itself. */
+    private static List<ItemResource> carriedItems(Player player) {
+        List<ItemStack> main = player.getInventory().getNonEquipmentItems();
+        int hotbar = Inventory.getSelectionSize();
+        List<ItemStack> ordered = new ArrayList<>(main.subList(0, hotbar));
+        ordered.add(player.getOffhandItem());
+        ordered.addAll(main.subList(hotbar, main.size()));
+
+        Set<ItemResource> distinct = new LinkedHashSet<>();
         for (ItemStack stack : ordered) {
             if (!stack.isEmpty() && !(stack.getItem() instanceof ProbeItem)) {
-                distinct.add(stack.copyWithCount(1));
+                distinct.add(ItemResource.of(stack));
             }
         }
         return List.copyOf(distinct);
@@ -119,8 +138,7 @@ public class ProbeItem extends Item {
      * Why the item contents must be left alone, or null. Reading an unopened loot container would
      * roll its loot, and a locked one is not this player's to look into.
      */
-    @Nullable
-    private static Component notReadReason(Level level, BlockPos pos, Player player) {
+    private static @Nullable Component notReadReason(Level level, BlockPos pos, Player player) {
         List<BlockPos> parts = new ArrayList<>(List.of(pos));
         BlockState state = level.getBlockState(pos);
         if (state.getBlock() instanceof ChestBlock && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
@@ -140,9 +158,9 @@ public class ProbeItem extends Item {
 
     private static List<Component> details(Level level, BlockPos pos, Direction side, Player player) {
         List<Component> lines = new ArrayList<>();
-        List<ItemStack> carried = carriedItems(player);
+        List<ItemResource> carried = carriedItems(player);
 
-        IItemHandler items = level.getCapability(Capabilities.ItemHandler.BLOCK, pos, side);
+        ResourceHandler<ItemResource> items = level.getCapability(Capabilities.Item.BLOCK, pos, side);
         Component notRead = items == null ? null : notReadReason(level, pos, player);
         if (items == null) {
             lines.add(tr("items.none").withStyle(ChatFormatting.GRAY));
@@ -152,19 +170,20 @@ public class ProbeItem extends Item {
             addItemLines(lines, items, carried);
         }
 
-        IFluidHandler fluids = level.getCapability(Capabilities.FluidHandler.BLOCK, pos, side);
+        ResourceHandler<FluidResource> fluids = level.getCapability(Capabilities.Fluid.BLOCK, pos, side);
         if (fluids == null) {
             lines.add(tr("fluids.none").withStyle(ChatFormatting.GRAY));
         } else {
             addFluidLines(lines, fluids, carried);
         }
 
-        IEnergyStorage energy = level.getCapability(Capabilities.EnergyStorage.BLOCK, pos, side);
+        EnergyHandler energy = level.getCapability(Capabilities.Energy.BLOCK, pos, side);
         if (energy == null) {
             lines.add(tr("energy.none").withStyle(ChatFormatting.GRAY));
         } else {
-            lines.add(tr("energy", energy.getEnergyStored(), energy.getMaxEnergyStored(),
-                    yesNo(energy.canReceive()), yesNo(energy.canExtract())));
+            lines.add(tr("energy", energy.getAmountAsLong(), energy.getCapacityAsLong(),
+                    yesNo(simulate(tx -> energy.insert(Integer.MAX_VALUE, tx)) > 0),
+                    yesNo(simulate(tx -> energy.extract(Integer.MAX_VALUE, tx)) > 0)));
         }
 
         List<Component> other = otherCapabilities(level, pos, side, true);
@@ -199,8 +218,9 @@ public class ProbeItem extends Item {
         return ids.stream().sorted().<Component>map(Component::literal).toList();
     }
 
-    private static void addItemLines(List<Component> lines, IItemHandler items, List<ItemStack> carried) {
-        int slots = items.getSlots();
+    private static void addItemLines(List<Component> lines, ResourceHandler<ItemResource> items,
+            List<ItemResource> carried) {
+        int slots = items.size();
         if (slots > MAX_TESTED_SLOTS) {
             lines.add(tr("items.too_large", slots).withStyle(ChatFormatting.GRAY));
             return;
@@ -208,26 +228,25 @@ public class ProbeItem extends Item {
         int occupied = 0;
         boolean canExtract = false;
         for (int slot = 0; slot < slots; slot++) {
-            if (!items.getStackInSlot(slot).isEmpty()) {
+            if (!items.getResource(slot).isEmpty()) {
                 occupied++;
-            }
-            if (!canExtract && !items.extractItem(slot, 1, true).isEmpty()) {
-                canExtract = true;
+                canExtract = canExtract || canExtract(items, slot);
             }
         }
         lines.add(tr("items", slots, occupied, yesNo(canExtract)));
 
-        List<ItemStack> samples = SAMPLE_ITEMS.stream().map(ItemStack::new).toList();
+        List<ItemResource> samples = SAMPLE_ITEMS.stream().map(ItemResource::of).toList();
 
         // Small inventories list every slot; large ones only the occupied slots, capped.
         boolean listEmptySlots = slots <= MAX_SLOT_LINES;
         int listed = 0;
         for (int slot = 0; slot < slots && listed < MAX_SLOT_LINES; slot++) {
-            ItemStack content = items.getStackInSlot(slot);
+            ItemResource content = items.getResource(slot);
             if (content.isEmpty() && !listEmptySlots) {
                 continue;
             }
-            Component what = content.isEmpty() ? tr("empty") : tr("stack", content.getHoverName(), content.getCount());
+            Component what = content.isEmpty() ? tr("empty")
+                    : tr("stack", content.getHoverName(), items.getAmountAsInt(slot));
             lines.add(tr("slot", slot + 1, what, slotRole(items, slot, content, carried, samples)));
             listed++;
         }
@@ -238,23 +257,23 @@ public class ProbeItem extends Item {
         lines.add(tr("accepts", acceptedItems(items, carried, samples, slots > 0 && occupied == slots)));
     }
 
-    private static Component slotRole(IItemHandler items, int slot, ItemStack content,
-            List<ItemStack> carried, List<ItemStack> samples) {
-        List<ItemStack> candidates = new ArrayList<>();
+    private static Component slotRole(ResourceHandler<ItemResource> items, int slot, ItemResource content,
+            List<ItemResource> carried, List<ItemResource> samples) {
+        List<ItemResource> candidates = new ArrayList<>();
         if (!content.isEmpty()) {
-            candidates.add(content.copyWithCount(1));
+            candidates.add(content);
         }
         candidates.addAll(carried);
         candidates.addAll(samples);
 
         boolean in = false;
-        for (ItemStack candidate : candidates) {
-            if (items.insertItem(slot, candidate, true).isEmpty()) {
+        for (ItemResource candidate : candidates) {
+            if (simulate(tx -> items.insert(slot, candidate, 1, tx)) > 0) {
                 in = true;
                 break;
             }
         }
-        boolean out = !items.extractItem(slot, 1, true).isEmpty();
+        boolean out = canExtract(items, slot);
 
         if (in && out) {
             return tr("role.both");
@@ -267,19 +286,19 @@ public class ProbeItem extends Item {
         return content.isEmpty() ? tr("role.no_input") : tr("role.locked");
     }
 
-    private static Component acceptedItems(IItemHandler items, List<ItemStack> carried, List<ItemStack> samples,
-            boolean full) {
+    private static Component acceptedItems(ResourceHandler<ItemResource> items, List<ItemResource> carried,
+            List<ItemResource> samples, boolean full) {
         List<Component> accepted = new ArrayList<>();
         boolean allCarried = true;
-        for (ItemStack stack : carried) {
-            if (!ItemHandlerHelper.insertItem(items, stack, true).isEmpty()) {
+        for (ItemResource item : carried) {
+            if (simulate(tx -> items.insert(item, 1, tx)) == 0) {
                 allCarried = false;
-            } else if (!accepted.contains(stack.getHoverName())) {
-                accepted.add(stack.getHoverName());
+            } else if (!accepted.contains(item.getHoverName())) {
+                accepted.add(item.getHoverName());
             }
         }
         long samplesAccepted = samples.stream()
-                .filter(sample -> ItemHandlerHelper.insertItem(items, sample, true).isEmpty())
+                .filter(sample -> simulate(tx -> items.insert(sample, 1, tx)) > 0)
                 .count();
 
         if (allCarried && samplesAccepted == samples.size()) {
@@ -294,44 +313,49 @@ public class ProbeItem extends Item {
         return tr(full ? "accepts.full" : "accepts.none").withStyle(ChatFormatting.RED);
     }
 
-    private static void addFluidLines(List<Component> lines, IFluidHandler fluids, List<ItemStack> carried) {
-        // Some handlers only drain in whole increments (a cauldron gives nothing for 1 mB).
-        boolean canDrain = !fluids.drain(Integer.MAX_VALUE, FluidAction.SIMULATE).isEmpty();
-        int tanks = fluids.getTanks();
-        lines.add(tr("fluids", tanks, yesNo(canDrain)));
+    private static void addFluidLines(List<Component> lines, ResourceHandler<FluidResource> fluids,
+            List<ItemResource> carried) {
+        int tanks = fluids.size();
 
         // Same rule as item slots: few tanks list all of them, many only the filled ones, capped.
         boolean listEmptyTanks = tanks <= MAX_SLOT_LINES;
+        List<Component> tankLines = new ArrayList<>();
+        boolean canDrain = false;
         int filled = 0;
-        int listed = 0;
         for (int tank = 0; tank < tanks; tank++) {
-            FluidStack fluid = fluids.getFluidInTank(tank);
+            FluidResource fluid = fluids.getResource(tank);
             if (!fluid.isEmpty()) {
                 filled++;
+                canDrain = canDrain || canExtract(fluids, tank);
             }
-            if (listed == MAX_SLOT_LINES || (fluid.isEmpty() && !listEmptyTanks)) {
+            if (tankLines.size() == MAX_SLOT_LINES || (fluid.isEmpty() && !listEmptyTanks)) {
                 continue;
             }
             Component name = fluid.isEmpty() ? tr("empty") : fluid.getHoverName();
-            lines.add(tr("tank", tank + 1, fluid.getAmount(), fluids.getTankCapacity(tank), name));
-            listed++;
+            tankLines.add(tr("tank", tank + 1, fluids.getAmountAsInt(tank), fluids.getCapacityAsInt(tank, fluid), name));
         }
-        if (!listEmptyTanks && filled > listed) {
-            lines.add(tr("tank.more", filled - listed).withStyle(ChatFormatting.GRAY));
+        lines.add(tr("fluids", tanks, yesNo(canDrain)));
+        lines.addAll(tankLines);
+        if (!listEmptyTanks && filled > tankLines.size()) {
+            lines.add(tr("tank.more", filled - tankLines.size()).withStyle(ChatFormatting.GRAY));
         }
 
         // Every candidate is tried as it is: the amount and components can decide whether a fill is taken.
         List<FluidStack> candidates = new ArrayList<>();
-        for (ItemStack stack : carried) {
-            FluidUtil.getFluidContained(stack).ifPresent(candidates::add);
+        for (ItemResource item : carried) {
+            FluidStack held = FluidUtil.getFirstStackContained(item.toStack());
+            if (!held.isEmpty()) {
+                candidates.add(held);
+            }
         }
         for (Fluid sample : SAMPLE_FLUIDS) {
-            candidates.add(new FluidStack(sample, 1000));
+            candidates.add(new FluidStack(sample, FluidType.BUCKET_VOLUME));
         }
         List<Component> accepted = new ArrayList<>();
         for (FluidStack candidate : candidates) {
             Component name = candidate.getHoverName();
-            if (!accepted.contains(name) && fluids.fill(candidate.copy(), FluidAction.SIMULATE) > 0) {
+            if (!accepted.contains(name)
+                    && simulate(tx -> fluids.insert(FluidResource.of(candidate), candidate.getAmount(), tx)) > 0) {
                 accepted.add(name);
             }
         }
@@ -348,13 +372,13 @@ public class ProbeItem extends Item {
 
     private static Component summary(Level level, BlockPos pos, @Nullable Direction side) {
         List<Component> exposed = new ArrayList<>();
-        if (level.getCapability(Capabilities.ItemHandler.BLOCK, pos, side) != null) {
+        if (level.getCapability(Capabilities.Item.BLOCK, pos, side) != null) {
             exposed.add(tr("label.items"));
         }
-        if (level.getCapability(Capabilities.FluidHandler.BLOCK, pos, side) != null) {
+        if (level.getCapability(Capabilities.Fluid.BLOCK, pos, side) != null) {
             exposed.add(tr("label.fluids"));
         }
-        if (level.getCapability(Capabilities.EnergyStorage.BLOCK, pos, side) != null) {
+        if (level.getCapability(Capabilities.Energy.BLOCK, pos, side) != null) {
             exposed.add(tr("label.energy"));
         }
         exposed.addAll(otherCapabilities(level, pos, side, side == null));

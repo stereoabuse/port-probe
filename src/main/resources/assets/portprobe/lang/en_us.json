@@ -30,7 +30,7 @@
   "portprobe.tank": "  Tank %s: %s / %s mB (%s)",
   "portprobe.tank.more": "  ... and %s more filled tank(s)",
   "portprobe.empty": "empty",
-  "portprobe.energy": "Energy: %s / %s FE, receives: %s, extracts: %s",
+  "portprobe.energy": "Energy: %s / %s FE, receives now: %s, extracts now: %s",
   "portprobe.energy.none": "Energy: not exposed",
   "portprobe.other": "Other: %s",
   "portprobe.accepts": "  Accepts: %s",
