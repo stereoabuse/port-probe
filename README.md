@@ -16,6 +16,7 @@ Ever had a pipe that refuses to connect, or a machine that will not take items f
 Port Probe answers the question "what does this face of this block actually accept?"
 
 - **Per-face readout.** Items, fluids and energy, for exactly the face you clicked.
+- **Works with any mod.** Ports that other mods add (chemicals, heat, network connections and so on) are listed by name.
 - **All-sides summary.** Sneak and click to compare every side at once.
 - **Slot by slot.** Shows what each reachable slot holds and whether it works as an input, an output or both.
 - **Acceptance test.** Automatically checks which of the items and fluids you are carrying the face would take. No setup needed.
@@ -86,6 +87,7 @@ Port Probe: Furnace (all sides)
 | **Slot N** | What the slot holds and its role, see below. Up to 6 slots are listed. Blocks with more slots than that list only the occupied ones. |
 | **Fluids** | How many tanks this face can reach and whether anything can be drained right now. Tanks are listed with their contents and capacity in mB, with the same limit of 6 as slots. |
 | **Energy** | Stored and maximum FE, and whether this face receives or gives energy. |
+| **Other** | Every other kind of port the face offers, by the ID its mod gave it, for example `mekanism:chemical_handler`. Only shown when there is one. The all-sides summary lists these too. |
 | **Accepts** | Which items or fluids this face would take, see below. |
 | **not exposed** | The block offers nothing of that kind on this face. A pipe on this side will not connect for it. |
 | **too many to scan** | The face reaches more than 4096 slots. Only the slot count is reported, because scanning that many could lag the server. Fluids and energy are still shown. |
@@ -135,14 +137,15 @@ The column can be placed in any of the three columns of the crafting grid.
 
 ## What it can and cannot see
 
-Port Probe reads the three standard NeoForge capabilities, which almost every tech mod uses for pipes and cables:
+Port Probe reads the three standard NeoForge capabilities, which almost every tech mod uses for pipes and cables, and lists any other capability a face offers:
 
 | Kind | Seen |
 |---|---|
-| Items | yes |
-| Fluids | yes |
-| Energy (FE) | yes |
-| Mod-specific resources (Mekanism chemicals, heat, Create rotation, AE2 channels, etc.) | no |
+| Items | yes, with contents |
+| Fluids | yes, with contents |
+| Energy (FE) | yes, with amounts |
+| Other mods' capabilities (Mekanism chemicals and heat, AE2 network connections, etc.) | by name only: the probe shows that the port exists, not what is in it |
+| Things that are not capabilities (Create rotation, redstone, etc.) | no |
 
 Blocks made of multiple parts in one block space, such as cables with attached buses, are read as a whole block. The probe does not distinguish individual parts.
 

@@ -30,6 +30,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.Fluids;
+import net.neoforged.neoforge.capabilities.BlockCapability;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.energy.IEnergyStorage;
 import net.neoforged.neoforge.fluids.FluidStack;
@@ -48,6 +49,8 @@ public class ProbeItem extends Item {
     // Arbitrary items used to tell "accepts anything" from "filtered" without relying on the player's inventory.
     private static final List<Item> SAMPLE_ITEMS = List.of(Items.COBBLESTONE, Items.STICK, Items.FEATHER);
     private static final List<Fluid> SAMPLE_FLUIDS = List.of(Fluids.WATER, Fluids.LAVA);
+    private static final Set<BlockCapability<?, ?>> READ_IN_DETAIL = Set.of(
+            Capabilities.ItemHandler.BLOCK, Capabilities.FluidHandler.BLOCK, Capabilities.EnergyStorage.BLOCK);
 
     public ProbeItem(Properties properties) {
         super(properties);
@@ -163,7 +166,37 @@ public class ProbeItem extends Item {
             lines.add(tr("energy", energy.getEnergyStored(), energy.getMaxEnergyStored(),
                     yesNo(energy.canReceive()), yesNo(energy.canExtract())));
         }
+
+        List<Component> other = otherCapabilities(level, pos, side, true);
+        if (!other.isEmpty()) {
+            lines.add(tr("other", ComponentUtils.formatList(other, Component.literal(", "))));
+        }
         return lines;
+    }
+
+    /**
+     * IDs of every other block capability, from any mod, that answers on this side. Capabilities
+     * that take no side are only included on request, so the all-sides summary lists them once.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<Component> otherCapabilities(Level level, BlockPos pos, @Nullable Direction side,
+            boolean withUnsided) {
+        List<String> ids = new ArrayList<>();
+        for (BlockCapability<?, ?> capability : BlockCapability.getAll()) {
+            if (READ_IN_DETAIL.contains(capability)) {
+                continue;
+            }
+            Object found = null;
+            if (capability.contextClass() == Direction.class) {
+                found = level.getCapability((BlockCapability<?, Direction>) capability, pos, side);
+            } else if (capability.contextClass() == Void.class && withUnsided) {
+                found = level.getCapability((BlockCapability<?, Void>) capability, pos, null);
+            }
+            if (found != null) {
+                ids.add(capability.name().toString());
+            }
+        }
+        return ids.stream().sorted().<Component>map(Component::literal).toList();
     }
 
     private static void addItemLines(List<Component> lines, IItemHandler items, List<ItemStack> carried) {
@@ -324,6 +357,7 @@ public class ProbeItem extends Item {
         if (level.getCapability(Capabilities.EnergyStorage.BLOCK, pos, side) != null) {
             exposed.add(tr("label.energy"));
         }
+        exposed.addAll(otherCapabilities(level, pos, side, side == null));
         Component what = exposed.isEmpty()
                 ? tr("nothing").withStyle(ChatFormatting.GRAY)
                 : ComponentUtils.formatList(exposed, Component.literal(", "));

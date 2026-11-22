@@ -32,6 +32,7 @@
   "portprobe.empty": "empty",
   "portprobe.energy": "Energy: %s / %s FE, receives: %s, extracts: %s",
   "portprobe.energy.none": "Energy: not exposed",
+  "portprobe.other": "Other: %s",
   "portprobe.accepts": "  Accepts: %s",
   "portprobe.accepts.any": "all tested items",
   "portprobe.accepts.more": "%s +%s more",
