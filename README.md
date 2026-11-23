@@ -8,6 +8,10 @@
   <sub>Minecraft 1.21.1 · NeoForge · <a href="#versions">other versions</a></sub>
 </p>
 
+<p align="center">
+  <a href="https://www.curseforge.com/minecraft/mc-mods/port-probe"><b>Download on CurseForge</b></a>
+</p>
+
 ---
 
 <img src="docs/images/items/port_probe.png" width="96" align="right" alt="Port Probe">
@@ -124,6 +128,7 @@ For items, the probe tries one of every distinct item you carry (hotbar first), 
 | **some items, but none that you carry** | The face is filtered: it took a sample item but nothing in your inventory. |
 | **nothing right now (no empty slot)** | Every slot is occupied, so nothing can be told about what it would accept. |
 | **nothing you carry** | Nothing that was tried is accepted. The face may be output-only. |
+
 For fluids, the probe tries water, lava and the contents of any buckets or tanks you carry, and names the ones the face would take.
 
 Everything describes the current moment. An empty output slot cannot be recognised as an output until the machine produces something, and a full slot can look like one that accepts nothing.
