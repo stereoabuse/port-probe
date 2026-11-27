@@ -55,6 +55,8 @@ There is a build of Port Probe for each of these Minecraft versions. Each one li
 
 The readout is printed to your chat. Only you see it.
 
+Holding use on one face prints one readout. Moving to another block or face, or switching between the detailed and all-sides views, gives you a new reading immediately.
+
 The acceptance test uses whatever you have on you: hotbar, off hand and the rest of your inventory. To find out whether a face takes a certain item or fluid, just have it (or a bucket of it) somewhere in your inventory when you click.
 
 ## Reading the output
@@ -103,7 +105,7 @@ Port Probe: Furnace (all sides)
 | **Other** | Every other kind of port the face offers, by the ID its mod gave it, for example `mekanism:chemical_handler`. Only shown when there is one. The all-sides summary lists these too. |
 | **Accepts** | Which items or fluids this face would take, see below. |
 | **not exposed** | The block offers nothing of that kind on this face. A pipe on this side will not connect for it. |
-| **too many to scan** | The face reaches more than 4096 slots. Only the slot count is reported, because scanning that many could lag the server. Fluids and energy are still shown. |
+| **too many to scan** | An item handler with more than 4,096 slots or a fluid handler with more than 256 tanks shows only its count. Other ports on the same face are still checked. |
 | **exposed, not read** | The face offers items, but the container is locked or is a loot chest nobody has opened yet, so the probe leaves its contents alone. |
 | **unsided** | What the block offers to things that ask without naming a side, such as some wireless or internal connections. |
 
@@ -126,8 +128,9 @@ For items, the probe tries one of every distinct item you carry (hotbar first), 
 | **all tested items** | Everything that was tried is accepted. The face is probably not filtered, but only the items tried are certain. |
 | A list of names | The items you carry that this face takes. At most 6 are named, then "+N more". |
 | **some items, but none that you carry** | The face is filtered: it took a sample item but nothing in your inventory. |
-| **nothing right now (no empty slot)** | Every slot is occupied, so nothing can be told about what it would accept. |
-| **nothing you carry** | Nothing that was tried is accepted. The face may be output-only. |
+| **nothing right now (no empty slot)** | Every slot is occupied and nothing that was tried fits, so nothing can be told about what the face would accept. |
+| **none of the items tested** | The face rejected every carried item and sample that the probe tried. |
+| **scan incomplete** | The probe reached its limit of 4,096 item insertion attempts or 256 carried tanks. Any names shown were confirmed to fit. |
 
 For fluids, the probe tries water, lava and the contents of any buckets or tanks you carry, and names the ones the face would take.
 
@@ -145,7 +148,7 @@ Items inside backpacks or other containers you carry are not tried.
   </tr>
 </table>
 
-The column can be placed in any of the three columns of the crafting grid.
+The column can be placed in any of the three columns of the crafting grid. Picking up any one of the three ingredients unlocks the recipe in the recipe book.
 
 ---
 
