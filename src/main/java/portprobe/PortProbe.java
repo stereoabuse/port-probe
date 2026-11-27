@@ -8,6 +8,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.UseItemOnBlockEvent;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -24,6 +25,11 @@ public class PortProbe {
         ITEMS.register(modBus);
         modBus.addListener(PortProbe::addToCreativeTab);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, PortProbe::probeWithoutBuildRights);
+        NeoForge.EVENT_BUS.addListener(PortProbe::forgetOnLogout);
+    }
+
+    private static void forgetOnLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        PROBE.get().forget(event.getEntity());
     }
 
     // ItemStack skips onItemUseFirst for players who may not build (adventure mode), so the block's

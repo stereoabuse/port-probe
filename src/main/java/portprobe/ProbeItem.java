@@ -1,9 +1,12 @@
 package portprobe;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.ToIntFunction;
 
@@ -12,9 +15,11 @@ import org.jspecify.annotations.Nullable;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentUtils;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.util.Util;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.RandomizableContainer;
 import net.minecraft.world.entity.player.Inventory;
@@ -38,6 +43,7 @@ import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.fluids.FluidType;
 import net.neoforged.neoforge.transfer.ResourceHandler;
+import net.neoforged.neoforge.transfer.access.ItemAccess;
 import net.neoforged.neoforge.transfer.energy.EnergyHandler;
 import net.neoforged.neoforge.transfer.fluid.FluidResource;
 import net.neoforged.neoforge.transfer.fluid.FluidUtil;
@@ -50,7 +56,13 @@ public class ProbeItem extends Item {
     private static final int MAX_ACCEPTED_NAMES = 6;
     // Larger inventories are reported by slot count only; scanning them could stall the server tick.
     private static final int MAX_TESTED_SLOTS = 4096;
-    private static final int HOLD_GUARD_TICKS = 8;
+    private static final int MAX_INSERT_ATTEMPTS = 4096;
+    private static final int MAX_TESTED_TANKS = 256;
+    // Real time, not game ticks: the client repeats a held button every 200 ms whatever the server's tick rate.
+    private static final long HOLD_GUARD_MILLIS = 400;
+    // Shorter than that repeat, so sweeping a held button across faces still reads each one.
+    private static final long MIN_SCAN_GAP_MILLIS = 150;
+    private final Map<UUID, ProbeUse> lastUses = new HashMap<>();
     // Arbitrary items used to tell "accepts anything" from "filtered" without relying on the player's inventory.
     private static final List<Item> SAMPLE_ITEMS = List.of(Items.COBBLESTONE, Items.STICK, Items.FEATHER);
     private static final List<Fluid> SAMPLE_FLUIDS = List.of(Fluids.WATER, Fluids.LAVA);
@@ -59,6 +71,25 @@ public class ProbeItem extends Item {
 
     public ProbeItem(Properties properties) {
         super(properties);
+    }
+
+    record ProbeUse(GlobalPos block, Direction face, boolean allSides, long millis) {
+        boolean repeats(@Nullable ProbeUse previous) {
+            return previous != null && block.equals(previous.block) && allSides == previous.allSides
+                    && (allSides || face == previous.face) && within(previous, HOLD_GUARD_MILLIS);
+        }
+
+        boolean tooSoonAfter(@Nullable ProbeUse previous) {
+            return previous != null && within(previous, MIN_SCAN_GAP_MILLIS);
+        }
+
+        private boolean within(ProbeUse previous, long gap) {
+            return millis >= previous.millis && millis - previous.millis < gap;
+        }
+    }
+
+    void forget(Player player) {
+        lastUses.remove(player.getUUID());
     }
 
     // onItemUseFirst runs before the block's own right-click, so the probe reads a machine
@@ -71,22 +102,28 @@ public class ProbeItem extends Item {
             return InteractionResult.PASS;
         }
         if (!level.isClientSide()) {
-            // Restarted on every attempt, so holding the button reads once instead of repeating.
-            boolean held = player.getCooldowns().isOnCooldown(stack);
-            player.getCooldowns().addCooldown(stack, HOLD_GUARD_TICKS);
-            if (held) {
+            BlockPos pos = context.getClickedPos();
+            Direction side = context.getClickedFace();
+            boolean allSides = player.isShiftKeyDown();
+            ProbeUse use = new ProbeUse(GlobalPos.of(level.dimension(), pos), side, allSides, Util.getMillis());
+            ProbeUse previous = lastUses.get(player.getUUID());
+            boolean repeat = use.repeats(previous);
+            // A use that comes too fast is dropped without being remembered, so the next repeat still reads it.
+            if (!repeat && use.tooSoonAfter(previous)) {
                 return InteractionResult.CONSUME;
             }
-            BlockPos pos = context.getClickedPos();
+            lastUses.put(player.getUUID(), use);
+            if (repeat) {
+                return InteractionResult.CONSUME;
+            }
             Component block = level.getBlockState(pos).getBlock().getName();
-            if (player.isShiftKeyDown()) {
+            if (allSides) {
                 player.sendSystemMessage(header(block, tr("all_sides")));
-                for (Direction side : Direction.values()) {
-                    player.sendSystemMessage(summary(level, pos, side));
+                for (Direction direction : Direction.values()) {
+                    player.sendSystemMessage(summary(level, pos, direction));
                 }
                 player.sendSystemMessage(summary(level, pos, null));
             } else {
-                Direction side = context.getClickedFace();
                 player.sendSystemMessage(header(block, sideName(side)));
                 for (Component line : details(level, pos, side, player)) {
                     player.sendSystemMessage(line);
@@ -208,7 +245,7 @@ public class ProbeItem extends Item {
             Object found = null;
             if (capability.contextClass() == Direction.class) {
                 found = level.getCapability((BlockCapability<?, Direction>) capability, pos, side);
-            } else if (capability.contextClass() == Void.class && withUnsided) {
+            } else if (withUnsided && isContextFree(capability)) {
                 found = level.getCapability((BlockCapability<?, Void>) capability, pos, null);
             }
             if (found != null) {
@@ -218,7 +255,12 @@ public class ProbeItem extends Item {
         return ids.stream().sorted().<Component>map(Component::literal).toList();
     }
 
-    private static void addItemLines(List<Component> lines, ResourceHandler<ItemResource> items,
+    static boolean isContextFree(BlockCapability<?, ?> capability) {
+        Class<?> context = capability.contextClass();
+        return context == void.class || context == Void.class;
+    }
+
+    static void addItemLines(List<Component> lines, ResourceHandler<ItemResource> items,
             List<ItemResource> carried) {
         int slots = items.size();
         if (slots > MAX_TESTED_SLOTS) {
@@ -236,6 +278,7 @@ public class ProbeItem extends Item {
         lines.add(tr("items", slots, occupied, yesNo(canExtract)));
 
         List<ItemResource> samples = SAMPLE_ITEMS.stream().map(ItemResource::of).toList();
+        InsertionScan scan = new InsertionScan(items, slots);
 
         // Small inventories list every slot; large ones only the occupied slots, capped.
         boolean listEmptySlots = slots <= MAX_SLOT_LINES;
@@ -247,17 +290,47 @@ public class ProbeItem extends Item {
             }
             Component what = content.isEmpty() ? tr("empty")
                     : tr("stack", content.getHoverName(), items.getAmountAsInt(slot));
-            lines.add(tr("slot", slot + 1, what, slotRole(items, slot, content, carried, samples)));
+            lines.add(tr("slot", slot + 1, what, slotRole(scan, slot, content, carried, samples)));
             listed++;
         }
         if (!listEmptySlots && occupied > listed) {
             lines.add(tr("slot.more", occupied - listed).withStyle(ChatFormatting.GRAY));
         }
 
-        lines.add(tr("accepts", acceptedItems(items, carried, samples, slots > 0 && occupied == slots)));
+        lines.add(tr("accepts", acceptedItems(scan, carried, samples, slots > 0 && occupied == slots)));
     }
 
-    private static Component slotRole(ResourceHandler<ItemResource> items, int slot, ItemResource content,
+    private static final class InsertionScan {
+        private final ResourceHandler<ItemResource> items;
+        private final int slots;
+        private int remaining = MAX_INSERT_ATTEMPTS;
+        private boolean incomplete;
+
+        InsertionScan(ResourceHandler<ItemResource> items, int slots) {
+            this.items = items;
+            this.slots = slots;
+        }
+
+        boolean accepts(int slot, ItemResource candidate) {
+            if (remaining == 0) {
+                incomplete = true;
+                return false;
+            }
+            remaining--;
+            return simulate(tx -> items.insert(slot, candidate, 1, tx)) > 0;
+        }
+
+        boolean acceptsAnywhere(ItemResource candidate) {
+            for (int slot = 0; slot < slots && !incomplete; slot++) {
+                if (accepts(slot, candidate)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private static Component slotRole(InsertionScan scan, int slot, ItemResource content,
             List<ItemResource> carried, List<ItemResource> samples) {
         List<ItemResource> candidates = new ArrayList<>();
         if (!content.isEmpty()) {
@@ -268,12 +341,12 @@ public class ProbeItem extends Item {
 
         boolean in = false;
         for (ItemResource candidate : candidates) {
-            if (simulate(tx -> items.insert(slot, candidate, 1, tx)) > 0) {
+            if (scan.accepts(slot, candidate)) {
                 in = true;
                 break;
             }
         }
-        boolean out = canExtract(items, slot);
+        boolean out = canExtract(scan.items, slot);
 
         if (in && out) {
             return tr("role.both");
@@ -286,20 +359,29 @@ public class ProbeItem extends Item {
         return content.isEmpty() ? tr("role.no_input") : tr("role.locked");
     }
 
-    private static Component acceptedItems(ResourceHandler<ItemResource> items, List<ItemResource> carried,
+    private static Component acceptedItems(InsertionScan scan, List<ItemResource> carried,
             List<ItemResource> samples, boolean full) {
         List<Component> accepted = new ArrayList<>();
         boolean allCarried = true;
         for (ItemResource item : carried) {
-            if (simulate(tx -> items.insert(item, 1, tx)) == 0) {
+            if (!scan.acceptsAnywhere(item)) {
+                if (scan.incomplete) {
+                    return incompleteScan(accepted);
+                }
                 allCarried = false;
             } else if (!accepted.contains(item.getHoverName())) {
                 accepted.add(item.getHoverName());
             }
         }
-        long samplesAccepted = samples.stream()
-                .filter(sample -> simulate(tx -> items.insert(sample, 1, tx)) > 0)
-                .count();
+        int samplesAccepted = 0;
+        for (ItemResource sample : samples) {
+            if (scan.acceptsAnywhere(sample)) {
+                samplesAccepted++;
+            }
+            if (scan.incomplete) {
+                return incompleteScan(accepted);
+            }
+        }
 
         if (allCarried && samplesAccepted == samples.size()) {
             return tr("accepts.any").withStyle(ChatFormatting.GREEN);
@@ -313,9 +395,18 @@ public class ProbeItem extends Item {
         return tr(full ? "accepts.full" : "accepts.none").withStyle(ChatFormatting.RED);
     }
 
-    private static void addFluidLines(List<Component> lines, ResourceHandler<FluidResource> fluids,
+    private static Component incompleteScan(List<Component> confirmed) {
+        return (confirmed.isEmpty() ? tr("accepts.incomplete") : tr("accepts.partial", nameList(confirmed)))
+                .withStyle(ChatFormatting.YELLOW);
+    }
+
+    static void addFluidLines(List<Component> lines, ResourceHandler<FluidResource> fluids,
             List<ItemResource> carried) {
         int tanks = fluids.size();
+        if (tanks > MAX_TESTED_TANKS) {
+            lines.add(tr("fluids.too_large", tanks).withStyle(ChatFormatting.GRAY));
+            return;
+        }
 
         // Same rule as item slots: few tanks list all of them, many only the filled ones, capped.
         boolean listEmptyTanks = tanks <= MAX_SLOT_LINES;
@@ -342,11 +433,24 @@ public class ProbeItem extends Item {
 
         // Every candidate is tried as it is: the amount and components can decide whether a fill is taken.
         List<FluidStack> candidates = new ArrayList<>();
+        int remaining = MAX_TESTED_TANKS;
+        boolean incomplete = false;
         for (ItemResource item : carried) {
-            FluidStack held = FluidUtil.getFirstStackContained(item.toStack());
-            if (!held.isEmpty()) {
-                candidates.add(held);
+            ResourceHandler<FluidResource> container =
+                    ItemAccess.forStack(item.toStack()).oneByOne().getCapability(Capabilities.Fluid.ITEM);
+            if (container == null) {
+                continue;
             }
+            int count = container.size();
+            int tested = Math.min(count, remaining);
+            for (int tank = 0; tank < tested; tank++) {
+                FluidStack contents = FluidUtil.getStack(container, tank);
+                if (!contents.isEmpty()) {
+                    candidates.add(contents);
+                }
+            }
+            remaining -= tested;
+            incomplete |= tested < count;
         }
         for (Fluid sample : SAMPLE_FLUIDS) {
             candidates.add(new FluidStack(sample, FluidType.BUCKET_VOLUME));
@@ -359,9 +463,13 @@ public class ProbeItem extends Item {
                 accepted.add(name);
             }
         }
-        lines.add(tr("accepts", accepted.isEmpty()
-                ? tr("accepts.no_fluids").withStyle(ChatFormatting.RED)
-                : nameList(accepted).withStyle(ChatFormatting.GREEN)));
+        if (incomplete) {
+            lines.add(tr("accepts", incompleteScan(accepted)));
+        } else {
+            lines.add(tr("accepts", accepted.isEmpty()
+                    ? tr("accepts.no_fluids").withStyle(ChatFormatting.RED)
+                    : nameList(accepted).withStyle(ChatFormatting.GREEN)));
+        }
     }
 
     private static MutableComponent nameList(List<Component> names) {
